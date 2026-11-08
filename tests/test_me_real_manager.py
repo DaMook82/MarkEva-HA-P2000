@@ -51,7 +51,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         form = await flow.async_init('p2000', context={'source': SOURCE_USER})
         self.assert_frontend_form(form, {'name', 'icon', 'places', 'grip_radius_m'})
         values = form['data_schema']({'name':' ', 'latitude':51, 'longitude':5, 'radius_m':0,
-            'grip_radius_m':0, 'places':'', 'disciplines':'', 'fire_codes':'', 'lifeliner_codes':'',
+            'grip_radius_m':0, 'places':'', 'disciplines':[], 'advanced': {'fire_codes':'', 'lifeliner_codes':''},
             'grip_place_fallback':False, 'scan_interval':30})
         invalid = await flow.async_configure(form['flow_id'], values)
         self.assertEqual(invalid['errors']['base'], 'invalid_name')
@@ -68,11 +68,73 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_imported_legacy_options_forms_serialize_for_frontend(self):
         result = await self.hass.config_entries.flow.async_init('p2000', context={'source': SOURCE_IMPORT}, data=me_normalize({'name':'Fixture'}))
         options = await self.hass.config_entries.options.async_init(result['result'].entry_id)
-        self.assert_frontend_form(options, {'name', 'icon', 'regios', 'capcodes', 'contains', 'nolocation', 'migrate_legacy_store'})
-        values = options['data_schema']({'name':'Other', 'latitude':51, 'longitude':5, 'radius_m':0, 'disciplines':'', 'scan_interval':10})
+        self.assert_frontend_form(options, {'name', 'icon', 'regios', 'advanced', 'contains', 'nolocation', 'migrate_legacy_store'})
+        values = options['data_schema']({'name':'Other', 'latitude':51, 'longitude':5, 'radius_m':0, 'disciplines':[], 'scan_interval':10})
         invalid = await self.hass.config_entries.options.async_configure(options['flow_id'], values)
         self.assertEqual(invalid['errors']['base'], 'name_fixed')
         self.assert_frontend_form(invalid, {'name', 'icon', 'regios', 'migrate_legacy_store'})
+
+    async def test_service_selection_and_optional_codes_roundtrip(self):
+        from custom_components.p2000.me_config import me_selection
+        from custom_components.p2000.me_core import me_select
+        flow = self.hass.config_entries.flow
+        form = await flow.async_init('p2000', context={'source': SOURCE_USER})
+        fields = probatio.to_field_list(form['data_schema'], custom_serializer=cv.custom_serializer)
+        service = next(f for f in fields if f['name'] == 'disciplines')
+        self.assertTrue(service['selector']['select']['multiple'])
+        advanced = next(f for f in fields if f['name'] == 'advanced')
+        self.assertEqual(advanced['type'], 'expandable')
+        self.assertFalse(advanced['expanded'])
+        self.assertTrue(all(not f['required'] for f in advanced['schema']))
+        data = {'name':'Fixture', 'latitude':51, 'longitude':5, 'radius_m':0,
+                'grip_radius_m':0, 'places':'Testville',
+                'disciplines':['Politiediensten','Brandweerdiensten'],
+                'grip_place_fallback':False, 'scan_interval':30}
+        result = await flow.async_configure(form['flow_id'], data)
+        entry = result['result']
+        self.assertEqual(entry.data['disciplines'], 'Politiediensten,Brandweerdiensten')
+        config = me_selection(me_normalize(entry.data))
+        row = {'dienst':'Politiediensten', 'message':'Testville', 'code':'123'}
+        self.assertTrue(me_select(row, config))
+        row['dienst'] = 'Ambulancediensten'
+        self.assertFalse(me_select(row, config))
+        options = await self.hass.config_entries.options.async_init(entry.entry_id)
+        serialized = probatio.to_field_list(options['data_schema'], custom_serializer=cv.custom_serializer)
+        self.assertEqual(next(f for f in serialized if f['name']=='disciplines')['default'], ['Politiediensten','Brandweerdiensten'])
+        values = options['data_schema']({**data, 'disciplines':['Lifeliner'], 'advanced':{'fire_codes':'9988776','lifeliner_codes':''}})
+        with patch.object(self.hass.config_entries, 'async_schedule_reload'):
+            await self.hass.config_entries.options.async_configure(options['flow_id'], values)
+        self.assertEqual(entry.options['disciplines'], 'Lifeliner')
+        self.assertEqual(entry.options['fire_codes'], '9988776')
+        reopened = await self.hass.config_entries.options.async_init(entry.entry_id)
+        serialized = probatio.to_field_list(reopened['data_schema'], custom_serializer=cv.custom_serializer)
+        advanced = next(f for f in serialized if f['name']=='advanced')
+        self.assertEqual(next(f for f in advanced['schema'] if f['name']=='fire_codes')['default'], '9988776')
+        self.assertNotIn('default', advanced)
+        omitted = reopened['data_schema']({**data, 'disciplines':['Lifeliner']})
+        with patch.object(self.hass.config_entries, 'async_schedule_reload'):
+            await self.hass.config_entries.options.async_configure(reopened['flow_id'], omitted)
+        self.assertEqual(entry.options['fire_codes'], '9988776')
+
+    async def test_legacy_text_options_preserved_with_optional_capcodes(self):
+        from custom_components.p2000.me_config import me_selection
+        from custom_components.p2000.me_core import me_select
+        data = me_normalize({'name':'Fixture','disciplines':'Politiediensten,Onbekend','capcodes':'123'})
+        entry = (await self.hass.config_entries.flow.async_init('p2000', context={'source': SOURCE_IMPORT}, data=data))['result']
+        form = await self.hass.config_entries.options.async_init(entry.entry_id)
+        fields = probatio.to_field_list(form['data_schema'], custom_serializer=cv.custom_serializer)
+        self.assertEqual(next(f for f in fields if f['name']=='disciplines')['default'], ['Politiediensten','Onbekend'])
+        adv = next(f for f in fields if f['name']=='advanced')
+        self.assertEqual(adv['schema'][0]['default'], '123')
+        values = form['data_schema']({'name':'Fixture','latitude':51,'longitude':5,'radius_m':0,
+                                     'disciplines':['Politiediensten','Onbekend'], 'scan_interval':10,
+                                     'advanced':{'capcodes':''}})
+        with patch.object(self.hass.config_entries, 'async_schedule_reload'):
+            await self.hass.config_entries.options.async_configure(form['flow_id'], values)
+        self.assertEqual(entry.options['disciplines'], 'Politiediensten,Onbekend')
+        config = me_selection({**me_normalize({k:v for k,v in {**entry.data, **entry.options}.items() if k not in ('legacy_yaml','migrate_legacy_store')}), 'legacy_yaml': True})
+        self.assertTrue(me_select({'dienst':'Politiediensten','message':'test','code':'999'}, config))
+        self.assertFalse(me_select({'dienst':'Ambulancediensten','message':'test','code':'999'}, config))
 
     async def test_import_and_duplicates(self):
         flow = self.hass.config_entries.flow
@@ -83,7 +145,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(again['type'], 'abort')
         self.assertEqual(again['reason'], 'yaml_owned_by_options')
         form = await flow.async_init('p2000', context={'source': SOURCE_USER})
-        result = await flow.async_configure(form['flow_id'], {'name':'fixture', 'latitude':51., 'longitude':5., 'radius_m':0, 'grip_radius_m':0, 'places':'', 'disciplines':'', 'fire_codes':'', 'lifeliner_codes':'', 'grip_place_fallback':False, 'scan_interval':30})
+        result = await flow.async_configure(form['flow_id'], {'name':'fixture', 'latitude':51., 'longitude':5., 'radius_m':0, 'grip_radius_m':0, 'places':'', 'disciplines':[], 'advanced': {'fire_codes':'', 'lifeliner_codes':''}, 'grip_place_fallback':False, 'scan_interval':30})
         self.assertEqual(result['type'], 'abort')
         self.assertEqual(len(self.hass.config_entries.async_entries('p2000')), 1)
 
@@ -93,7 +155,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         entry = result['result']
         form = await self.hass.config_entries.options.async_init(entry.entry_id)
         options = form['data_schema']({'name':'Fixture', 'latitude':51, 'longitude':5, 'radius_m':0,
-            'disciplines':'Politiediensten', 'scan_interval':2, 'regios':'1', 'capcodes':'',
+            'disciplines':['Politiediensten'], 'scan_interval':2, 'regios':'1', 'advanced': {'capcodes':''},
             'contains':'', 'nolocation':True})
         with patch.object(self.hass.config_entries, 'async_schedule_reload') as reload:
             done = await self.hass.config_entries.options.async_configure(form['flow_id'], options)
@@ -105,7 +167,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_gui_first_does_not_silently_convert_to_yaml(self):
         flow = self.hass.config_entries.flow
         form = await flow.async_init('p2000', context={'source': SOURCE_USER})
-        result = await flow.async_configure(form['flow_id'], {'name':'Fixture', 'latitude':51., 'longitude':5., 'radius_m':0, 'grip_radius_m':0, 'places':'', 'disciplines':'', 'fire_codes':'', 'lifeliner_codes':'', 'grip_place_fallback':False, 'scan_interval':30})
+        result = await flow.async_configure(form['flow_id'], {'name':'Fixture', 'latitude':51., 'longitude':5., 'radius_m':0, 'grip_radius_m':0, 'places':'', 'disciplines':[], 'advanced': {'fire_codes':'', 'lifeliner_codes':''}, 'grip_place_fallback':False, 'scan_interval':30})
         self.assertEqual(result['type'], 'create_entry')
         imported = await flow.async_init('p2000', context={'source': SOURCE_IMPORT}, data=me_normalize({'name':'Fixture'}))
         self.assertEqual(imported['reason'], 'identity_conflict')
@@ -137,7 +199,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         entry._async_set_state(self.hass, ConfigEntryState.SETUP_RETRY, 'migration selection required')
         form = await self.hass.config_entries.options.async_init(entry.entry_id)
         values = form['data_schema']({'name':'Fixture', 'latitude':51, 'longitude':5, 'radius_m':0,
-            'disciplines':'', 'scan_interval':10, 'migrate_legacy_store':True})
+            'disciplines':[], 'scan_interval':10, 'migrate_legacy_store':True})
         async def reload_entry(entry_id):
             self.assertEqual(entry_id, entry.entry_id)
             return await async_setup_entry(self.hass, entry)
@@ -156,7 +218,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         result = await self.hass.config_entries.flow.async_init('p2000', context={'source': SOURCE_IMPORT}, data=me_normalize({'name':'Fixture'}))
         entry = result['result']
         form = await self.hass.config_entries.options.async_init(entry.entry_id)
-        values = form['data_schema']({'name':'Other', 'latitude':51, 'longitude':5, 'radius_m':0, 'disciplines':'', 'scan_interval':10})
+        values = form['data_schema']({'name':'Other', 'latitude':51, 'longitude':5, 'radius_m':0, 'disciplines':[], 'scan_interval':10})
         result = await self.hass.config_entries.options.async_configure(form['flow_id'], values)
         self.assertEqual(result['errors']['base'], 'name_fixed')
         self.assertEqual(entry.options, {})
@@ -182,7 +244,7 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
             await self.hass.async_block_till_done()
             self.assertEqual(entry.state, ConfigEntryState.SETUP_RETRY)
             form = await self.hass.config_entries.options.async_init(entry.entry_id)
-            values = form['data_schema']({'name':'Fixture','latitude':51,'longitude':5,'radius_m':0,'disciplines':'','scan_interval':10,'migrate_legacy_store':True})
+            values = form['data_schema']({'name':'Fixture','latitude':51,'longitude':5,'radius_m':0,'disciplines':[],'scan_interval':10,'migrate_legacy_store':True})
             await self.hass.config_entries.options.async_configure(form['flow_id'], values)
             await self.hass.async_block_till_done()
             self.assertEqual(entry.state, ConfigEntryState.LOADED)

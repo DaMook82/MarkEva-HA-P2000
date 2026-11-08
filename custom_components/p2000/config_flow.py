@@ -6,11 +6,34 @@ import logging
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.selector import IconSelector
+from homeassistant.helpers.selector import IconSelector, SelectSelector
+from homeassistant.data_entry_flow import section
+from .me_config import me_list
 
 DOMAIN = "p2000"
 _LOGGER = logging.getLogger(__name__)
 
+
+DISCIPLINES = [
+    {"value": "Politiediensten", "label": "Politie"},
+    {"value": "Brandweerdiensten", "label": "Brandweer"},
+    {"value": "Ambulancediensten", "label": "Ambulance"},
+    {"value": "Lifeliner", "label": "Lifeliner"},
+    {"value": "Overige", "label": "Overig"},
+]
+
+def me_flatten(user_input, defaults=None):
+    """Persist legacy-compatible flat fields, preserving omitted advanced options."""
+    values = dict(user_input)
+    advanced = values.pop("advanced", None)
+    for key in ("capcodes", "fire_codes", "lifeliner_codes"):
+        if defaults and key in defaults:
+            values[key] = defaults[key]
+    if advanced is not None:
+        values.update(advanced)
+    if isinstance(values.get("disciplines"), list):
+        values["disciplines"] = ",".join(values["disciplines"])
+    return values
 
 def me_schema(defaults):
     """Build an editable schema; coordinates and filters are user supplied."""
@@ -21,23 +44,24 @@ def me_schema(defaults):
         vol.Required("radius_m", default=defaults.get("radius_m", 0)): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000000)),
         vol.Required("grip_radius_m", default=defaults.get("grip_radius_m", 0)): vol.All(vol.Coerce(float), vol.Range(min=0, max=1000000)),
         vol.Required("places", default=defaults.get("places", "")): cv.string,
-        vol.Required("disciplines", default=defaults.get("disciplines", "")): cv.string,
-        vol.Required("fire_codes", default=defaults.get("fire_codes", "")): cv.string,
-        vol.Required("lifeliner_codes", default=defaults.get("lifeliner_codes", "")): cv.string,
+        vol.Optional("disciplines", default=me_list(defaults.get("disciplines", ""))): SelectSelector({"options": DISCIPLINES, "multiple": True, "custom_value": True, "mode": "dropdown"}),
         vol.Optional("icon", default=defaults.get("icon", "mdi:ambulance")): IconSelector(),
         vol.Required("grip_place_fallback", default=defaults.get("grip_place_fallback", False)): cv.boolean,
         vol.Required("scan_interval", default=defaults.get("scan_interval", 30)): vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False)),
     }
     if defaults.get("legacy_yaml"):
-        for field in ("places", "grip_radius_m", "grip_place_fallback", "fire_codes", "lifeliner_codes"):
+        for field in ("places", "grip_radius_m", "grip_place_fallback"):
             fields.pop(next(k for k in fields if k.schema == field))
         fields.update({
             vol.Optional("regios", default=defaults.get("regios", "")): cv.string,
-            vol.Optional("capcodes", default=defaults.get("capcodes", "")): cv.string,
             vol.Optional("contains", default=defaults.get("contains", "")): cv.string,
             vol.Optional("nolocation", default=defaults.get("nolocation", True)): cv.boolean,
             vol.Optional("migrate_legacy_store", default=defaults.get("migrate_legacy_store", False)): cv.boolean,
         })
+    code_fields = ("capcodes",) if defaults.get("legacy_yaml") else ("fire_codes", "lifeliner_codes")
+    fields[vol.Optional("advanced")] = section(vol.Schema({
+        vol.Optional(key, default=defaults.get(key, "")): cv.string for key in code_fields
+    }), {"collapsed": True})
     return vol.Schema(fields)
 
 
@@ -61,6 +85,7 @@ class MeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
+            user_input = me_flatten(user_input)
             name = user_input["name"].strip()
             if not name:
                 return self.async_show_form(step_id="user", data_schema=me_schema(user_input), errors={"base": "invalid_name"})
@@ -80,6 +105,7 @@ class MeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class MeOptionsFlow(config_entries.OptionsFlowWithReload):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
+            user_input = me_flatten(user_input, {**self.config_entry.data, **self.config_entry.options})
             # Names determine entity identity. Refuse instead of silently ignoring edits.
             if user_input["name"] != self.config_entry.data["name"]:
                 return self.async_show_form(step_id="init", data_schema=me_schema({**self.config_entry.data, **self.config_entry.options}), errors={"base": "name_fixed"})

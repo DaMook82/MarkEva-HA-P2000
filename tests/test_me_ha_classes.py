@@ -40,10 +40,10 @@ class RealHATests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_ha_schema_validation(self):
         defaults = {'name':'Fixture','latitude':51.,'longitude':5., 'places':'Testville',
-                    'disciplines':'Politiediensten','radius_m':1000,'grip_radius_m':1000,
+                    'disciplines':['Politiediensten'],'radius_m':1000,'grip_radius_m':1000,
                     'grip_place_fallback':False,'scan_interval':30}
         schema = me_schema(defaults)
-        self.assertEqual(schema(defaults)['name'],'Fixture')
+        self.assertEqual(schema({**defaults, 'disciplines':['Politiediensten']})['name'],'Fixture')
         self.assertEqual(schema({**defaults,'scan_interval':1})['scan_interval'], 1)
         with self.assertRaises(Exception): schema({**defaults,'scan_interval':0})
 

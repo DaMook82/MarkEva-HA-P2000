@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "P2000 selection",
-        "description": "Comma-separate places and discipline names. Zero radius disables that radius; a place fallback is not a municipality boundary.",
+        "description": "Select services. Separate place names with commas. A zero radius disables that radius; place matching is not a municipal boundary. GRIP selection is independent.",
         "data": {
           "name": "Name",
           "icon": "Icon",
@@ -12,11 +12,20 @@
           "radius_m": "Ordinary radius (metres)",
           "grip_radius_m": "GRIP radius (metres)",
           "places": "Place names",
-          "disciplines": "Disciplines",
-          "fire_codes": "Fire capcodes",
-          "lifeliner_codes": "Lifeliner capcodes",
+          "disciplines": "Services",
           "grip_place_fallback": "Allow place fallback for GRIP",
           "scan_interval": "Polling interval (seconds)"
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced (optional capcodes)",
+            "description": "Capcodes are optional; leave them empty for normal service selection. Legacy capcodes restrict matches; fire and Lifeliner codes add limited recognition. Separate codes with commas.",
+            "data": {
+              "fire_codes": "Fire capcodes",
+              "lifeliner_codes": "Lifeliner capcodes",
+              "capcodes": "Legacy capcode filter"
+            }
+          }
         }
       }
     },
@@ -36,7 +45,6 @@
         "data": {
           "icon": "Icon",
           "regios": "Regions",
-          "capcodes": "Capcodes",
           "contains": "Text contains",
           "nolocation": "Allow calls without location",
           "migrate_legacy_store": "Copy previous shared P2000 history to this entry (only after verifying ownership)",
@@ -46,11 +54,21 @@
           "radius_m": "Ordinary radius (metres)",
           "grip_radius_m": "GRIP radius (metres)",
           "places": "Place names",
-          "disciplines": "Disciplines",
-          "fire_codes": "Fire capcodes",
-          "lifeliner_codes": "Lifeliner capcodes",
+          "disciplines": "Services",
           "grip_place_fallback": "Allow place fallback for GRIP",
           "scan_interval": "Polling interval (seconds)"
+        },
+        "description": "Select services. Separate place names with commas. A zero radius disables that radius; place matching is not a municipal boundary. GRIP selection is independent.",
+        "sections": {
+          "advanced": {
+            "name": "Advanced (optional capcodes)",
+            "description": "Capcodes are optional; leave them empty for normal service selection. Legacy capcodes restrict matches; fire and Lifeliner codes add limited recognition. Separate codes with commas.",
+            "data": {
+              "fire_codes": "Fire capcodes",
+              "lifeliner_codes": "Lifeliner capcodes",
+              "capcodes": "Legacy capcode filter"
+            }
+          }
         }
       }
     },

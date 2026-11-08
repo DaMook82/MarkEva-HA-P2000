@@ -6,6 +6,7 @@ import logging
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import IconSelector
 
 DOMAIN = "p2000"
 _LOGGER = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def me_schema(defaults):
         vol.Required("disciplines", default=defaults.get("disciplines", "")): cv.string,
         vol.Required("fire_codes", default=defaults.get("fire_codes", "")): cv.string,
         vol.Required("lifeliner_codes", default=defaults.get("lifeliner_codes", "")): cv.string,
-        vol.Optional("icon", default=defaults.get("icon", "mdi:ambulance")): cv.icon,
+        vol.Optional("icon", default=defaults.get("icon", "mdi:ambulance")): IconSelector(),
         vol.Required("grip_place_fallback", default=defaults.get("grip_place_fallback", False)): cv.boolean,
         vol.Required("scan_interval", default=defaults.get("scan_interval", 30)): vol.All(vol.Coerce(float), vol.Range(min=0, min_included=False)),
     }

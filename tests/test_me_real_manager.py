@@ -10,6 +10,9 @@ from homeassistant import loader
 from homeassistant.config_entries import ConfigEntries, ConfigEntry, ConfigEntryState, SOURCE_IMPORT, SOURCE_USER
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers import config_validation as cv
+import json
+import probatio
 from custom_components.p2000 import async_setup_entry, MeCoordinator
 from test_me_migration import OLD
 import copy
@@ -34,6 +37,42 @@ class ManagerTests(unittest.IsolatedAsyncioTestCase):
         await self.hass.async_stop()
         self.setup.stop()
         self.tmp.cleanup()
+
+    def assert_frontend_form(self, form, expected_fields):
+        self.assertEqual(form['type'], 'form')
+        fields = probatio.to_field_list(form['data_schema'], custom_serializer=cv.custom_serializer)
+        json.dumps(fields)
+        self.assertTrue(expected_fields <= {field['name'] for field in fields})
+        icon = next(field for field in fields if field['name'] == 'icon')
+        self.assertEqual(icon['selector'], {'icon': {}})
+
+    async def test_gui_forms_serialize_for_frontend(self):
+        flow = self.hass.config_entries.flow
+        form = await flow.async_init('p2000', context={'source': SOURCE_USER})
+        self.assert_frontend_form(form, {'name', 'icon', 'places', 'grip_radius_m'})
+        values = form['data_schema']({'name':' ', 'latitude':51, 'longitude':5, 'radius_m':0,
+            'grip_radius_m':0, 'places':'', 'disciplines':'', 'fire_codes':'', 'lifeliner_codes':'',
+            'grip_place_fallback':False, 'scan_interval':30})
+        invalid = await flow.async_configure(form['flow_id'], values)
+        self.assertEqual(invalid['errors']['base'], 'invalid_name')
+        self.assert_frontend_form(invalid, {'name', 'icon', 'places'})
+        values['name'] = 'Fixture'
+        result = await flow.async_configure(form['flow_id'], values)
+        options = await self.hass.config_entries.options.async_init(result['result'].entry_id)
+        self.assert_frontend_form(options, {'name', 'icon', 'places'})
+        values['name'] = 'Other'
+        invalid_options = await self.hass.config_entries.options.async_configure(options['flow_id'], values)
+        self.assertEqual(invalid_options['errors']['base'], 'name_fixed')
+        self.assert_frontend_form(invalid_options, {'name', 'icon', 'places'})
+
+    async def test_imported_legacy_options_forms_serialize_for_frontend(self):
+        result = await self.hass.config_entries.flow.async_init('p2000', context={'source': SOURCE_IMPORT}, data=me_normalize({'name':'Fixture'}))
+        options = await self.hass.config_entries.options.async_init(result['result'].entry_id)
+        self.assert_frontend_form(options, {'name', 'icon', 'regios', 'capcodes', 'contains', 'nolocation', 'migrate_legacy_store'})
+        values = options['data_schema']({'name':'Other', 'latitude':51, 'longitude':5, 'radius_m':0, 'disciplines':'', 'scan_interval':10})
+        invalid = await self.hass.config_entries.options.async_configure(options['flow_id'], values)
+        self.assertEqual(invalid['errors']['base'], 'name_fixed')
+        self.assert_frontend_form(invalid, {'name', 'icon', 'regios', 'migrate_legacy_store'})
 
     async def test_import_and_duplicates(self):
         flow = self.hass.config_entries.flow

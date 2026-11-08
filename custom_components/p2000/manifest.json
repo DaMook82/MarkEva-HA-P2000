@@ -1,13 +1,15 @@
 {
     "domain": "p2000",
     "name": "P2000 Sensor",
-    "documentation": "https://github.com/cyberjunky/home-assistant-p2000",
+    "documentation": "https://github.com/DaMook82/MarkEva-HA-P2000",
     "dependencies": [],
     "codeowners": [
-      "@cyberjunky"
+      "@DaMook82"
     ],
     "requirements": [
       "feedparser"
     ],
+    "config_flow": true,
+    "iot_class": "cloud_polling",
     "version": "1.0.23"
   }

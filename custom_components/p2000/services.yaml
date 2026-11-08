@@ -1,0 +1,37 @@
+acknowledge:
+  name: Acknowledge P2000 call
+  description: Mark one unread call as acknowledged without deleting history.
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        text:
+    id:
+      required: true
+      selector:
+        text:
+get_history:
+  name: Get P2000 history
+  description: Return a page of archived calls; retention differs by configuration.
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        text:
+    offset:
+      selector:
+        number:
+          min: 0
+    limit:
+      selector:
+        number:
+          min: 1
+          max: 100
+clear_unread:
+  name: Acknowledge all unread P2000 calls
+  description: Mark all unread calls as acknowledged without deleting history.
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        text:

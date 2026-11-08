@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "P2000 selection",
+        "description": "Comma-separate places and discipline names. Zero radius disables that radius; a place fallback is not a municipality boundary.",
+        "data": {
+          "name": "Name",
+          "icon": "Icon",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "radius_m": "Ordinary radius (metres)",
+          "grip_radius_m": "GRIP radius (metres)",
+          "places": "Place names",
+          "disciplines": "Disciplines",
+          "fire_codes": "Fire capcodes",
+          "lifeliner_codes": "Lifeliner capcodes",
+          "grip_place_fallback": "Allow place fallback for GRIP",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Enter a name."
+    },
+    "abort": {
+      "already_configured": "This name is already configured.",
+      "identity_conflict": "A P2000 entry already exists. Import stopped: no identity or settings were changed. Review ownership before removing anything.",
+      "yaml_owned_by_options": "Already imported. Manage settings in integration options; later YAML changes are ignored."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "P2000 selection",
+        "data": {
+          "icon": "Icon",
+          "regios": "Regions",
+          "capcodes": "Capcodes",
+          "contains": "Text contains",
+          "nolocation": "Allow calls without location",
+          "migrate_legacy_store": "Copy previous shared P2000 history to this entry (only after verifying ownership)",
+          "name": "Name (fixed)",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "radius_m": "Ordinary radius (metres)",
+          "grip_radius_m": "GRIP radius (metres)",
+          "places": "Place names",
+          "disciplines": "Disciplines",
+          "fire_codes": "Fire capcodes",
+          "lifeliner_codes": "Lifeliner capcodes",
+          "grip_place_fallback": "Allow place fallback for GRIP",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "name_fixed": "The name determines identity and cannot be changed in options."
+    }
+  }
+}

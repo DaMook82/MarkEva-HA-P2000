@@ -22,6 +22,8 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.components.sensor import SensorEntity
 import homeassistant.util as util
 from homeassistant.util.location import distance
 
@@ -62,13 +64,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    """Set up the P2000 sensor."""
-    data = P2000Data(hass, config)
+    """Import YAML into a config entry instead of starting a second poller."""
+    from homeassistant.config_entries import SOURCE_IMPORT
+    from .me_config import me_normalize
 
-    async_track_time_interval(hass, data.async_update, config[CONF_SCAN_INTERVAL])
-
-    async_add_devices(
-        [P2000Sensor(hass, data, config.get(CONF_NAME), config.get(CONF_ICON))], True
+    values = dict(config)
+    values.setdefault(CONF_LATITUDE, hass.config.latitude)
+    values.setdefault(CONF_LONGITUDE, hass.config.longitude)
+    await hass.config_entries.flow.async_init(
+        "p2000", context={"source": SOURCE_IMPORT}, data=me_normalize(values)
     )
 
 
@@ -371,3 +375,48 @@ class P2000Sensor(RestoreEntity):
         if data:
             self._state = data["msgtext"]
             _LOGGER.debug("State updated to %s", self._state)
+
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Expose one central sensor for a GUI or imported YAML entry."""
+    async_add_entities([MeP2000Sensor(hass.data['p2000'][entry.entry_id], entry)])
+
+
+class MeP2000Sensor(CoordinatorEntity, RestoreEntity, SensorEntity):
+    """Latest call plus bounded, non-recorder unread queue."""
+    _attr_icon = 'mdi:car-emergency'
+    _unrecorded_attributes = frozenset({'unread_calls'})
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator)
+        self._attr_name = entry.title
+        self._attr_icon = entry.options.get('icon', entry.data.get('icon', 'mdi:car-emergency'))
+        self._attr_unique_id = entry.data['name'] if entry.data.get('legacy_yaml') else f'me_{entry.entry_id}'
+        self._entry_id = entry.entry_id
+        self._restored_state = None
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._restored_state = await self.async_get_last_state()
+
+    @property
+    def native_value(self):
+        latest = self.coordinator.queue.data.get('latest')
+        return latest['msgtext'][:255] if latest else (self._restored_state.state if self._restored_state else None)
+
+    @property
+    def extra_state_attributes(self):
+        queue = self.coordinator.queue
+        latest = queue.data.get('latest') or {}
+        restored = dict(self._restored_state.attributes) if self._restored_state and not latest else {}
+        return {**restored, 'config_entry_id': self._entry_id, 'unread_count': len(queue.unread()),
+                'unread_calls': queue.unread(), 'msgtime': latest.get('msgtime', restored.get('msgtime', restored.get('time'))),
+                'received_at': latest.get('received_at', restored.get('received_at')), 'capcode': latest.get('capcode', restored.get('capcode')),
+                'discipline': latest.get('discipline', restored.get('discipline')),
+                'time': latest.get('msgtime', restored.get('time')),
+                'latitude': latest.get('latitude', restored.get('latitude')),
+                'longitude': latest.get('longitude', restored.get('longitude')),
+                'distance': latest.get('distance', restored.get('distance')),
+                'regio': latest.get('regio', restored.get('regio')),
+                'regio name': latest.get('regioname', restored.get('regio name')),
+                'attribution': CONF_ATTRIBUTION}

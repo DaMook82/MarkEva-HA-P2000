@@ -1,173 +1,47 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)  [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/) [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/cyberjunkynl/)
+# MarkEva P2000 — experimental Home Assistant fork
 
-# P2000 Sensor Component
+> **Development checkpoint, not ready for installation or migration.** Built primarily for personal use; no support is promised. This is a public fork of [cyberjunky/home-assistant-p2000](https://github.com/cyberjunky/home-assistant-p2000), retaining the `p2000` integration domain. Upstream copyright and MIT terms remain in [LICENSE](LICENSE).
 
-## NOTE: 
-We now use a new RSS feed service provided by Erwin from http://p2000.brandweer-berkel-enschot.nl/ thanks!
-Hence this version is in beta state.
+## Status and distribution
 
-# P2000 Sensor Component
+The development branch contains a GUI configuration flow, options, a latest-call sensor, a persistent unread queue and a separate bounded archive. It is tested at code level only. Full Home Assistant startup, platform forwarding, browser UI, restart persistence, real feed reception, installation, upgrade, removal, migration and rollback have **not** been verified. No popup, dashboard or historical-import service is included. Do not use this candidate in production or depend on it for emergency information.
 
-This is a Custom Component for Home-Assistant (https://home-assistant.io) that tracks P2000 emergency events in The Netherlands.
+There is no tested installation route or release for this candidate. In particular, HACS does **not** automatically install this development branch. Installation in an isolated HA environment requires a separate decision and a verified distribution procedure. The original upstream YAML instructions are retained as [historical reference](docs/upstream-legacy.md), not instructions for this candidate. The inherited screenshots were removed from this branch because they contain historical incident details; they remain in upstream Git history.
 
-## About
-This component queries http://p2000.brandweer-berkel-enschot.nl/ at the configured interval and applies filters for range (if lat/lon is available), discipline(s) and regio(s) set.
+## How selection and delivery are intended to work
 
-When events are found the P2000 sensor state gets set, which you can use to trigger automation, display sensor data,
-and even plot location on the map.
+The existing RSS source uses unencrypted HTTP, a short sliding window and no reliable GUID; source authenticity, availability and complete reception cannot be guaranteed. The first successful nonempty poll establishes a baseline and emits no historical calls. Subsequent rows lacking a nonempty source time, message or capcode, or a valid timezone-aware time, are skipped. A key derived from source time, message and capcode deduplicates subsequent polls; otherwise identical calls can collide. Rejected calls remain in the bounded seen set, so broadening filters does not replay them while retained. Unknown legacy key variants can replay. A crash around delivery can repeat an event.
 
-## Installation
+For new GUI entries the options include a centre, radius in metres, comma-separated place names and disciplines, optional independently verified fire and Lifeliner capcodes, and GRIP radius/fallback. Place-name matching applies as a fallback for absent coordinates and is **not** a municipal boundary. Radius matching requires usable feed coordinates. GRIP matching can include other disciplines. The default radius is zero, so configure selection explicitly; verify every selection against representative fixtures before relying on it. No personal selection is preconfigured. Imported YAML uses its legacy conjunctive filters and options, not the new GUI place-selection semantics.
 
-### HACS - Recommended
-- Have [HACS](https://hacs.xyz) installed, this will allow you to easily manage and track updates.
-- Search for 'P2000'.
-- Click Install below the found integration.
-- Configure using the configuration instructions below.
-- Restart Home-Assistant.
+A latest sensor, unread queue and archive are separate. The sensor state is limited to 255 characters; full event text remains in the event and queue. Missing location and distance are unknown, not zero. The unread attribute is excluded from Recorder; Recorder is not a complete archive. The store holds up to 50 unread calls and 4,096 seen keys. A full unread queue retries a new call only while it remains in the source. New GUI entries keep at most 2,000 archive records. Imported legacy entries use a 90-day archive window and retain records with unknown archive dates; pruning occurs on new archive writes. The source and received times are distinct. No archive browser is supplied.
 
-### Manual
-- Copy directory `custom_components/p2000` to your `<config dir>/custom_components` directory.
-- Configure with config below.
-- Restart Home-Assistant.
+The integration emits `p2000_call` and exposes `p2000.acknowledge` (call `id`), `p2000.clear_unread`, and response-only `p2000.get_history` (`offset`, `limit` 1–100). Each accepts `config_entry_id`; it may be omitted only when exactly one entry is loaded. Acknowledge/clear mark calls read without deleting latest or archive. History returns a page, total and retention information. These interfaces have not been validated in a running HA installation.
 
-## Usage
-To use this component in your installation, add the following to your `configuration.yaml` file:
+## YAML import and data safety
 
-```yaml
-# Example configuration.yaml entries
+The candidate accepts one new entry. A first YAML import retains the exact old name as the legacy sensor unique ID. Thereafter integration options own the settings; later YAML edits are ignored and differences logged. Changing the identity name in options is rejected. A second entry or import is refused, and existing multiple entries are not automatically removed.
 
-sensor:
-  - platform: p2000
-    scan_interval: 20
-    capcodes: 1403001,1403003
-    icon: mdi:fire-truck
-    nolocation: true
-    
-  - platform: p2000
-    name: Amsterdam
-    regios: 13
-    disciplines: Politiediensten
-    radius: 10000
-    scan_interval: 10
-    latitude: 52.3680
-    longitude: 4.9036
-```
+If a GUI entry exists first, later YAML import aborts with `identity_conflict`; there is no conversion, merge or identity reassignment. The existing GUI entry can continue running; inspect the HA log because browser presentation is unverified. Stop and decide which identity, settings and data should be retained. Do not remove either configuration to force progress.
 
-Configuration variables:
+An existing shared `p2000_call_queue` is copied only to an empty per-entry store, for exactly one legacy YAML entry, after the owner has verified ownership and explicitly selected the migration option. The original is not intentionally changed. Without that choice, or with multiple entries, setup waits. Unsupported/corrupt data or incompatible storage envelopes stop setup without a deliberate rewrite or rename. Validation checks structural essentials, not the meaning of every historical field. No owner store has been inspected, and concurrent external writers are outside this contract.
 
-- **regios** (*Optional*): You can specify one, if you want more seperate them by commas, without it you trigger on all (is alot)
- * 0 = Gereserveerd
- * 1 = Groningen
- * 2 = Friesland
- * 3 = Drenthe
- * 4 = IJsselland
- * 5 = Twente
- * 6 = Noord en Oost Gelderland
- * 7 = Gelderland Midden
- * 8 = Gelderland Zuid
- * 9 = Utrecht
- * 10 = Noord Holland Noord
- * 11 = Zaanstreek-Waterland
- * 12 = Kennemerland
- * 13 = Amsterdam-Amstelland
- * 14 = Gooi en Vechtstreek
- * 15 = Haaglanden
- * 16 = Hollands Midden
- * 17 = Rotterdam Rijnmond
- * 18 = Zuid Holland Zuid
- * 19 = Zeeland
- * 20 = Midden- en West-Brabant
- * 21 = Brabant Noord
- * 22 = Brabant Zuid en Oost
- * 23 = Limburg Noord
- * 24 = Limburg Zuid
- * 25 = Flevoland
-- **disciplines** (*Optional*): Disciplines to display, separate them by commas. (default = all of them)
- * Brandweerdiensten = Brandweer
- * Ambulancediensten = Ambulance
- * Politiediensten = Politie
- * Gereserveerd = Gereserveerd
- * [Possible more of them]
-- **radius** (*Optional*): Only display on calls within this range in meters, it uses the lat/lon from your home-assistant.conf file as center or the optional latitude/longitude values.
-- **scan_interval** (*Optional*): Check every x seconds. (default = 30)
-- **name** (*Optional*): Name for sensor.
-- **latitude** (*Optional*): Latitude of center radius.
-- **longitude** (*Optional*): Longitude of center radius.
-- **capcodes** (*Optional*): Capcode(s) you want to filter on. http://capcode.nl. You can specify one, if you want more seperate them by commas. (full 7 digit notation)
-- **nolocation** (*Optional*): Set this to False if you only want events which contain location data (default = True)
-- **contains** (*Optional*): Search for events which contains this word exactly how it is written, for example GRIP
+## Later isolated owner acceptance — not yet executed
 
-NOTE:
-Regarding capcodes;
-Make sure you specify the correct matching regio(s) in your config and remove leading 0's ie. capcode 0100001 is received as 100001 
+After separate approval and choosing an isolated target with no real notifications or device control:
 
-You can use a state trigger event to send push notifications like this:
-```yaml
-# Example automation.yaml entry
+1. Independently back up and verify YAML, entity registry and all old/new P2000 stores. Record the old sensor identity, configuration, latest call, archive and unread list separately.
+2. Agree and verify an actual route to the exact development commit before installing. Record the previous version and its recovery path. Test GUI setup and options, source selection, baseline, multiple synthetic calls, acknowledgements, archive and sensor/event output. Check that no unexpected phone notification occurs.
+3. For migration, stop on identity conflict, unclear store ownership, inaccessible options or validation failure. Only for exactly one matching legacy entry and a verified matching old store, select the old-store copy option and save. Compare identity, latest, archive and unread against the snapshot before and after a new fixture.
+4. With separate approval, test restart, update and removal; check identity, queue, archive and latest after each. Store cleanup on removal is not implemented; user dashboard bindings and stored data may remain and must be assessed separately. Do not silently delete history.
+5. For rollback, preserve **both** diverged stores and all new records. Never overwrite the new store with the old one: there is no automatic merge. Establish a reviewed recovery procedure before changing versions. A retained source copy is not a substitute for an independently verified backup.
 
-automation:
-  - alias: 'P2000 Bericht'
-    trigger:
-      platform: state
-      entity_id: sensor.p2000
-    condition:
-      alias: "Time 07~23"
-      condition: time
-      after: "07:00:00"
-      before: "23:00:00"
-    action:
-      - service_template: notify.html5
-        data_template:
-          title: P2000 Bericht - {{ state_attr('sensor.p2000', 'discipline') }}
-          message: >
-            {{ states('sensor.p2000') }} (Capcode: {{ state_attr('sensor.p2000', 'capcode') }})
-          data:
-            # iOS URL
-            url: "https://www.google.com/maps/search/?api=1&query={{ state_attr('sensor.p2000', 'latitude') }},{{ state_attr('sensor.p2000', 'longitude') }}"
-            # Android URL
-            clickAction: "https://www.google.com/maps/search/?api=1&query={{ state_attr('sensor.p2000', 'latitude') }},{{ state_attr('sensor.p2000', 'longitude') }}"
-```
+Actual results must be recorded before claiming migration, restart or installation works. Real feed reception, browser behavior, Recorder continuity, dashboards, notification delivery and the owner's acceptance remain open.
 
-Above is for html5 notify, you can click the notify message to open google maps with the lat/lon location if available in the P2000 message.
+## Development tests
 
-## Screenshots
+With Python, pytest, pytest-asyncio, pytest-subtests and compatible Home Assistant dependencies installed in a dedicated development environment, run `python -m pytest -q tests`. The existing suite uses synthetic fixtures and temporary stores, including genuine HA classes and flow/config-entry managers; some entry setups, first refresh and platform forwarding are mocked. It does not start a complete HA instance or contact the real feed. The tested HA version and exact run results should accompany each development report rather than being inferred from this document.
 
-![alt text](https://github.com/cyberjunky/home-assistant-p2000/blob/master/screenshots/p2000sensor.png?raw=true "Screenshot Sensor")
-![alt text](https://github.com/cyberjunky/home-assistant-p2000/blob/master/screenshots/p2000map.png?raw=true "Screenshot Map")
-![alt text](https://github.com/cyberjunky/home-assistant-p2000/blob/master/screenshots/p2000multi.png?raw=true "Screenshot Multi")
+## Privacy
 
-Lovelace card example:
-
-```yaml
-cards:
-      - entity: sensor.p2000
-        name: P2000 Dordrecht
-        type: sensor
-      - entity: sensor.amsterdam
-        icon: 'mdi:fire-truck'
-        name: P2000 Amsterdam
-        type: sensor
-      - default_zoom: 7
-        entities:
-          - entity: sensor.p2000
-          - entity: zone.home
-          - entity: sensor.amsterdam
-        title: P2000 Dordrecht & Amsterdam
-        type: map
-```
-
-## Debugging
-If you experience unexpected output, please create an issue.
-Share your configuration and post some debug log info.
-You can obtain this by adding this line to your config and restart homeassistant.
-
-
-```
-logger:
-  default: info
-  logs:
-      custom_components.p2000: debug
-```
-
-## Donation
-[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.me/cyberjunkynl/)
+Configuration, incident text, coordinates, capcodes, store files and logs can be sensitive. Review and redact them before sharing. The feed travels over HTTP. No private configuration or production storage is included in this repository. Upstream project history is public and is not rewritten by this branch.
